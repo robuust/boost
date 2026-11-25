@@ -236,6 +236,34 @@ final class Craft5SyncTest extends TestCase
         self::assertSame('new', file_get_contents($root.'/.agents/skills/guide/ref'));
     }
 
+    public function testSymlinkedFileIsReplacedInsteadOfWrittenThrough(): void
+    {
+        $root = $this->project('craft5');
+        $outside = $this->project('craft5').'/shared.md';
+        file_put_contents($outside, "shared\n");
+        symlink($outside, $root.'/CLAUDE.md');
+
+        $changes = new Changeset($root);
+        $changes->put('CLAUDE.md', "@AGENTS.md\n");
+        $changes->apply();
+
+        self::assertFalse(is_link($root.'/CLAUDE.md'));
+        self::assertSame("@AGENTS.md\n", file_get_contents($root.'/CLAUDE.md'));
+        self::assertSame("shared\n", file_get_contents($outside), 'the link target is left alone');
+    }
+
+    public function testClaudeMdLinkedToAgentsMdIsKept(): void
+    {
+        $root = $this->project('craft5');
+        symlink('AGENTS.md', $root.'/CLAUDE.md');
+
+        self::assertSame(0, $this->cli(['sync', '--root='.$root])['exit']);
+
+        self::assertSame('AGENTS.md', readlink($root.'/CLAUDE.md'));
+        self::assertStringStartsWith('# Fixture project', (string) file_get_contents($root.'/AGENTS.md'), 'no import is written into AGENTS.md');
+        self::assertSame(0, $this->cli(['sync', '--check', '--root='.$root])['exit']);
+    }
+
     public function testGeneratedClaudeSkillsDirectoryBecomesASymlink(): void
     {
         $root = $this->project('craft5');

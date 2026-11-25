@@ -70,7 +70,7 @@ final class Craft5Sync
         $this->planGuidelines($changes);
 
         if ($config->uses('claude_code')) {
-            $this->planClaudeImport($changes);
+            $this->planClaudeImport($stack, $changes);
         }
 
         $legacy = LegacyRules::migration($stack->root());
@@ -225,8 +225,14 @@ final class Craft5Sync
         $changes->put('AGENTS.md', $content);
     }
 
-    private function planClaudeImport(Changeset $changes): void
+    private function planClaudeImport(Stack $stack, Changeset $changes): void
     {
+        // A CLAUDE.md that links to AGENTS.md already gives Claude Code the same instructions.
+        $claude = $stack->path('CLAUDE.md');
+        if (is_link($claude) && realpath($claude) === realpath($stack->path('AGENTS.md'))) {
+            return;
+        }
+
         $existing = $changes->contents('CLAUDE.md');
 
         if (null === $existing || '' === trim($existing)) {

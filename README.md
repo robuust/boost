@@ -35,7 +35,7 @@ The package is public and not on Packagist yet; it loads through a `vcs` reposit
 }
 ```
 
-Until the first release, require `dev-feature/initial-package` instead of `^0.1`.
+Until the first release, require `dev-develop` instead of `^0.1`.
 
 No credentials are needed, also not in Docker builds or CI. Without a GitHub token, Composer reads this repository through GitHub's unauthenticated API, which allows 60 requests per hour per IP address; a shared CI runner that hits that limit needs a GitHub token in `COMPOSER_AUTH`. Heroku builds run with `--no-dev`, so they never install the package.
 

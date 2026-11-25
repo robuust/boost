@@ -120,8 +120,9 @@ final class Changeset
             if (is_file($path) && file_get_contents($path) === $content) {
                 continue;
             }
-            // A shipped path can turn from a directory into a file.
-            if (is_dir($path) && !is_link($path)) {
+            // Replace a symlink instead of writing through it to a file that may live elsewhere,
+            // and a directory when a shipped path turned from a directory into a file.
+            if (is_link($path) || is_dir($path)) {
                 Filesystem::remove($path);
             }
             Filesystem::ensureDirectory(\dirname($path));
