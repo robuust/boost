@@ -1,0 +1,6 @@
+{
+    "name": "robuust/fixture-craft5",
+    "require": {
+        "craftcms/cms": "^5.0"
+    }
+}

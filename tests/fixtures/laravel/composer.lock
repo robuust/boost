@@ -1,0 +1,9 @@
+{
+    "packages": [
+        {"name": "laravel/framework", "version": "v13.43.0"},
+        {"name": "inertiajs/inertia-laravel", "version": "v3.7.0"}
+    ],
+    "packages-dev": [
+        {"name": "laravel/boost", "version": "v2.10.4"}
+    ]
+}

@@ -1,0 +1,12 @@
+{
+    "major": "5",
+    "source": "craftcms/docs",
+    "revision": "a8ba13427aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "generated_at": "2026-11-19T06:00:00Z",
+    "pages": [
+        {"path": "docs/5.x/reference/twig/tags.md", "title": "Tags", "url": "https://craftcms.com/docs/5.x/reference/twig/tags.html", "headings": ["cache", "nav", "redirect"]},
+        {"path": "docs/5.x/development/tags.md", "title": "Tags", "url": "https://craftcms.com/docs/5.x/development/tags.html", "headings": ["Taggable elements"]},
+        {"path": "docs/5.x/reference/twig/tags.md", "title": "Duplicate path", "url": "https://example.com/duplicate", "headings": []},
+        {"path": "docs/5.x/development/eager-loading.md", "title": "Eager-Loading Elements", "url": "https://craftcms.com/docs/5.x/development/eager-loading.html", "headings": ["with"]}
+    ]
+}

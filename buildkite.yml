@@ -1,0 +1,24 @@
+agents:
+  queue: $QUEUE
+
+steps:
+  - label: ":php: PHP 8.5 (mcp/sdk {{matrix}})"
+    # Craft 5.12 and Craft 6 lock mcp/sdk 0.9; newer projects get 0.10.
+    matrix:
+      - "0.9.*"
+      - "^0.10"
+    commands:
+      - composer update --no-interaction --no-progress --prefer-dist --with="mcp/sdk:{{matrix}}"
+      - vendor/bin/php-cs-fixer fix --dry-run --diff
+      - vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+      - vendor/bin/phpunit
+    plugins:
+      - docker:
+          image: ghcr.io/robuust/heroku-php:heroku26
+          propagate-uid-gid: true
+          environment:
+            - COMPOSER_HOME=/tmp/composer
+
+notify:
+  - email: "support@robuust.digital"
+    if: build.state == "failed" && build.branch == pipeline.default_branch

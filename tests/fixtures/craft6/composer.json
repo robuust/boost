@@ -1,0 +1,9 @@
+{
+    "name": "robuust/fixture-craft6",
+    "require": {
+        "craftcms/cms": "dev-feature/craft6-link-autosave#c8b66ffb as 6.0.0-beta.1"
+    },
+    "require-dev": {
+        "laravel/boost": "^2.10"
+    }
+}

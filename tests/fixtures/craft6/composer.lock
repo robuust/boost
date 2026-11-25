@@ -1,0 +1,9 @@
+{
+    "packages": [
+        {"name": "craftcms/cms", "version": "dev-feature/craft6-link-autosave"},
+        {"name": "inertiajs/inertia-laravel", "version": "v3.7.0"}
+    ],
+    "packages-dev": [
+        {"name": "laravel/boost", "version": "v2.10.4"}
+    ]
+}
