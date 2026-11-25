@@ -75,11 +75,71 @@ final class GuardAndCheckTest extends TestCase
         $seen = null;
         $runner = new RecordingRunner(static function (string $cwd) use (&$seen): void {
             $seen = file_get_contents($cwd.'/AGENTS.md');
+            file_put_contents($cwd.'/AGENTS.md', $seen."\n<laravel-boost-guidelines>\nnew\n</laravel-boost-guidelines>\n");
         });
 
         self::assertSame(0, $this->cli(['sync', '--root='.$root], $runner)['exit']);
 
         self::assertSame("# Project\n\nHand-written.\n\nFooter.\n", $seen, 'the block is gone before boost:update runs');
+        self::assertStringNotContainsString('robuust-agents-guidelines', (string) file_get_contents($root.'/AGENTS.md'));
+    }
+
+    public function testBoostSyncKeepsTheCraft5FilesWhenBoostWritesNoBlock(): void
+    {
+        $root = $this->craft5To6Project();
+        $before = $this->tree($root);
+
+        $result = $this->cli(['sync', '--root='.$root], new RecordingRunner());
+
+        self::assertSame(1, $result['exit']);
+        self::assertStringContainsString('wrote no <laravel-boost-guidelines> block to AGENTS.md, so the Craft 5 agent files were put back', $result['stderr']);
+        self::assertSame($before, $this->tree($root));
+    }
+
+    public function testBoostSyncKeepsTheCraft5FilesWhenBoostFails(): void
+    {
+        $root = $this->craft5To6Project();
+        $before = $this->tree($root);
+        $runner = new RecordingRunner(static function (string $cwd): void {
+            file_put_contents($cwd.'/AGENTS.md', "half-written\n");
+        }, 1);
+
+        self::assertSame(1, $this->cli(['sync', '--root='.$root], $runner)['exit']);
+
+        self::assertSame($before, $this->tree($root));
+    }
+
+    public function testBoostSyncRetiresTheCraft5SkillsAndMcpServer(): void
+    {
+        $root = $this->craft5To6Project();
+        $runner = new RecordingRunner(static function (string $cwd): void {
+            file_put_contents($cwd.'/AGENTS.md', "<laravel-boost-guidelines>\nnew\n</laravel-boost-guidelines>\n", FILE_APPEND);
+        });
+
+        self::assertSame(0, $this->cli(['sync', '--root='.$root], $runner)['exit']);
+
+        self::assertDirectoryDoesNotExist($root.'/.agents/skills/fe-craft');
+        self::assertFileDoesNotExist($root.'/.agents/skills/.robuust-agents-manifest.json');
+        self::assertFileExists($root.'/.agents/skills/my-own-skill/SKILL.md', 'hand-written skills stay');
+        self::assertFalse(is_link($root.'/.claude/skills'), 'Boost gets a real Claude skills directory');
+        self::assertSame(['other' => ['command' => 'other']], json_decode((string) file_get_contents($root.'/.mcp.json'), true)['mcpServers']);
+        self::assertSame("[mcp_servers.other]\ncommand = \"other\"\n", file_get_contents($root.'/.codex/config.toml'));
+    }
+
+    public function testBoostCheckRefusesPathOverrides(): void
+    {
+        $root = $this->project('laravel');
+        $this->write($root.'/vendor/robuust/boost/composer.json', '{}');
+        $this->write($root.'/config/boost.php', "<?php\n\nreturn ['agents' => ['codex' => ['skills_path' => 'custom/skills']]];\n");
+        $before = $this->tree($root);
+        $runner = new RecordingRunner();
+
+        $result = $this->cli(['sync', '--check', '--root='.$root], $runner);
+
+        self::assertSame(1, $result['exit']);
+        self::assertStringContainsString('config/boost.php sets skills_path', $result['stderr']);
+        self::assertSame([], $runner->commands, 'boost:update does not run');
+        self::assertSame($before, $this->tree($root));
     }
 
     public function testCraft5CheckWritesNothingAndFailsOnADiff(): void
@@ -281,6 +341,27 @@ final class GuardAndCheckTest extends TestCase
 
         self::assertSame(1, $result['exit']);
         self::assertStringContainsString('Unsupported project', $result['stderr']);
+    }
+
+    /**
+     * A Craft 6 project that a Craft 5 sync configured: the guidelines block, generated skills next
+     * to a hand-written one, the Claude skills symlink and `robuust` MCP entries next to another server.
+     */
+    private function craft5To6Project(): string
+    {
+        $root = $this->project('craft6');
+        $this->write($root.'/boost.json', '{"agents": ["claude_code", "codex"], "packages": ["robuust/boost"]}');
+        $this->write($root.'/vendor/robuust/boost/composer.json', '{}');
+        $this->write($root.'/AGENTS.md', "# Project\n\n<robuust-agents-guidelines>\nold\n</robuust-agents-guidelines>\n");
+        $this->write($root.'/.agents/skills/fe-craft/SKILL.md', "generated\n");
+        $this->write($root.'/.agents/skills/my-own-skill/SKILL.md', "hand-written\n");
+        $this->write($root.'/.agents/skills/.robuust-agents-manifest.json', '{"skills": ["fe-craft"]}');
+        mkdir($root.'/.claude');
+        symlink('../.agents/skills', $root.'/.claude/skills');
+        $this->write($root.'/.mcp.json', '{"mcpServers": {"robuust": {"command": "php", "args": ["vendor/bin/robuust-agents", "mcp"]}, "other": {"command": "other"}}}');
+        $this->write($root.'/.codex/config.toml', "[mcp_servers.robuust]\ncommand = \"php\"\nargs = [\"vendor/bin/robuust-agents\", \"mcp\"]\n\n[mcp_servers.other]\ncommand = \"other\"\n");
+
+        return $root;
     }
 
     /**

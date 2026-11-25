@@ -10,3 +10,5 @@
 - Craft CMS 5 and 6 docs search from the versioned `craft-llms` index, without falling back to another major, and Tailwind CSS 4 docs search. Code terms such as `@apply` or `with()` rank first, a matching heading opens the excerpt, and the Tailwind version check reads `yarn.lock` or `package-lock.json` when `node_modules` is missing.
 - `vendor/bin/robuust-agents mcp` serving the docs search to Craft 5 projects, and `index-rules` to regenerate `.ai/rules/index.md`.
 - Published as a public package under the MIT license, installable over HTTPS without credentials.
+- Craft docs search falls back to the published full text, so API names that only appear in page text, such as `andWhere()`, are found.
+- The move from Craft 5 to Craft 6 retires the Craft 5 block, skills and MCP entries once `boost:update` has written its replacement, and puts them back when it has not.

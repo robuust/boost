@@ -109,6 +109,10 @@ final class LegacyRulesTest extends TestCase
 
         self::assertSame(0, $this->cli(['sync', '--root='.$root], new RecordingRunner())['exit']);
         self::assertStringStartsWith("---\npaths:\n", (string) file_get_contents($root.'/.ai/rules/src-css.md'));
+
+        $index = (string) file_get_contents($root.'/'.RulesIndex::INDEX);
+        self::assertStringStartsWith('# Project Rules Index', $index, 'the legacy index is rebuilt in Boost\'s format');
+        self::assertStringContainsString('| src/css/**, src/css/*.css | .ai/rules/src-css.md |', $index);
     }
 
     private function legacyProject(): string

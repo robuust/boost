@@ -40,6 +40,18 @@ final class Craft5Sync
     /** Where `.claude/skills` points when both agents are configured, relative to `.claude`. */
     public const CLAUDE_SKILLS_LINK = '../.agents/skills';
 
+    /** @var array<string, string> agent => MCP config file */
+    public const MCP_CONFIGS = [
+        'codex' => '.codex/config.toml',
+        'claude_code' => '.mcp.json',
+    ];
+
+    /** A `[mcp_servers.robuust]` table header, bare or quoted, with an optional trailing comment. */
+    private const CODEX_TABLE = '/^\s*\[\s*mcp_servers\s*\.\s*(?:robuust|"robuust"|\'robuust\')\s*\]\s*(?:#.*)?$/';
+
+    /** A header of a `[mcp_servers.robuust.*]` sub-table, such as `env` or `tools.<name>`. */
+    private const CODEX_SUBTABLE = '/^\s*\[\s*mcp_servers\s*\.\s*(?:robuust|"robuust"|\'robuust\')\s*\./';
+
     public function __construct(private readonly string $packageRoot)
     {
     }
@@ -94,7 +106,60 @@ final class Craft5Sync
             $this->planClaudeMcp($changes, $command, $args);
         }
 
+        foreach (array_keys(self::SKILL_DIRECTORIES) as $agent) {
+            if (!$config->uses($agent)) {
+                self::planRetire($stack, $changes, $agent);
+            }
+        }
+
         return $changes;
+    }
+
+    /**
+     * Whether an earlier Craft 5 sync left generated skills behind for any agent.
+     */
+    public static function hasOutput(Stack $stack): bool
+    {
+        $claudeSkills = $stack->path(self::SKILL_DIRECTORIES['claude_code']);
+        if (is_link($claudeSkills) && self::CLAUDE_SKILLS_LINK === readlink($claudeSkills)) {
+            return true;
+        }
+
+        foreach (self::SKILL_DIRECTORIES as $directory) {
+            if (is_file($stack->path($directory.'/'.self::MANIFEST))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Plan the removal of what a sync generated for an agent: the skills in its manifest (or the
+     * `.claude/skills` symlink) and the `robuust` MCP entry. Hand-written skills, other MCP servers
+     * and other settings stay.
+     */
+    public static function planRetire(Stack $stack, Changeset $changes, string $agent): void
+    {
+        $directory = self::SKILL_DIRECTORIES[$agent];
+        $path = $stack->path($directory);
+
+        if (is_link($path)) {
+            if (self::CLAUDE_SKILLS_LINK === readlink($path)) {
+                $changes->delete($directory);
+            }
+        } elseif (is_file($path.'/'.self::MANIFEST)) {
+            foreach (self::manifestSkills($path) as $name) {
+                $changes->delete($directory.'/'.$name);
+            }
+            $changes->delete($directory.'/'.self::MANIFEST);
+        }
+
+        if ('codex' === $agent) {
+            self::planRemoveCodexMcp($changes);
+        } else {
+            self::planRemoveClaudeMcp($changes);
+        }
     }
 
     /**
@@ -170,7 +235,9 @@ final class Craft5Sync
             return;
         }
 
-        if (1 === preg_match('/^@AGENTS\.md\s*$/m', $existing)) {
+        // Claude Code ignores imports inside fenced code blocks, so an example there does not count.
+        $active = (string) preg_replace('/^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[ \t]*$/ms', '', $existing);
+        if (1 === preg_match('/^@AGENTS\.md\s*$/m', $active)) {
             return;
         }
 
@@ -183,14 +250,19 @@ final class Craft5Sync
     private function planSkills(Stack $stack, Changeset $changes, string $directory, array $skills): void
     {
         $manifestPath = $directory.'/'.self::MANIFEST;
-        $previous = [];
-        $manifest = Json::readFile($stack->path($manifestPath));
-        if (\is_array($manifest['skills'] ?? null)) {
-            $previous = array_filter($manifest['skills'], 'is_string');
+        $previous = self::manifestSkills($stack->path($directory));
+
+        // A skill directory the sync did not write may hold hand-written files; never take it over.
+        $own = array_values(array_filter(
+            array_keys($skills),
+            static fn (string $name): bool => !\in_array($name, $previous, true) && file_exists($stack->path($directory.'/'.$name)),
+        ));
+        if ([] !== $own) {
+            throw new \RuntimeException(\sprintf('%s holds skills that robuust-agents did not write but would overwrite: %s. Rename or remove them, then run the sync again. Nothing was written.', $directory, implode(', ', $own)));
         }
 
         foreach ($previous as $name) {
-            if (!isset($skills[$name]) && self::isSafeName($name)) {
+            if (!isset($skills[$name])) {
                 $changes->delete($directory.'/'.$name);
             }
         }
@@ -221,9 +293,7 @@ final class Craft5Sync
         $path = $stack->path($directory);
 
         if (is_dir($path) && !is_link($path)) {
-            $manifest = Json::readFile($path.'/'.self::MANIFEST);
-            $generated = \is_array($manifest['skills'] ?? null) ? array_filter($manifest['skills'], 'is_string') : [];
-            $own = array_values(array_diff(Filesystem::entries($path), [self::MANIFEST, ...$generated]));
+            $own = array_values(array_diff(Filesystem::entries($path), [self::MANIFEST, ...self::manifestSkills($path)]));
 
             if ([] !== $own) {
                 throw new \RuntimeException(\sprintf('%s holds skills that robuust-agents did not write: %s. Move them to %s, then run the sync again. Nothing was written.', $directory, implode(', ', $own), self::SKILL_DIRECTORIES['codex']));
@@ -238,35 +308,138 @@ final class Craft5Sync
      */
     private function planCodexMcp(Changeset $changes, string $command, array $args): void
     {
-        $path = '.codex/config.toml';
+        $path = self::MCP_CONFIGS['codex'];
         $existing = $changes->contents($path) ?? '';
-        $header = '[mcp_servers.'.self::MCP_SERVER.']';
         $quoted = array_map(static fn (string $arg): string => json_encode($arg, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR), $args);
-        $table = $header."\n"
-            .'command = '.json_encode($command, JSON_THROW_ON_ERROR)."\n"
-            .'args = ['.implode(', ', $quoted).']'."\n";
+        $owned = [
+            'command = '.json_encode($command, JSON_THROW_ON_ERROR),
+            'args = ['.implode(', ', $quoted).']',
+        ];
 
         $lines = '' === $existing ? [] : explode("\n", rtrim($existing, "\n"));
-        $start = array_search($header, array_map('trim', $lines), true);
+        $range = self::codexTable($lines, self::CODEX_TABLE);
 
-        if (false === $start) {
-            $content = ([] === $lines ? '' : implode("\n", $lines)."\n\n").$table;
+        if (null === $range) {
+            $table = '[mcp_servers.'.self::MCP_SERVER."]\n".implode("\n", $owned)."\n";
+            $changes->put($path, ([] === $lines ? '' : implode("\n", $lines)."\n\n").$table);
+
+            return;
+        }
+
+        // Replace only the keys the sync owns; keep the header and every other key, such as `env`.
+        [$start, $end] = $range;
+        $body = self::withoutKeys(\array_slice($lines, $start + 1, $end - $start - 1), ['command', 'args']);
+        $lines = [...\array_slice($lines, 0, $start + 1), ...$owned, ...$body, ...\array_slice($lines, $end)];
+
+        $changes->put($path, implode("\n", $lines)."\n");
+    }
+
+    /**
+     * Remove the `[mcp_servers.robuust]` table and its sub-tables from the Codex config.
+     */
+    private static function planRemoveCodexMcp(Changeset $changes): void
+    {
+        $path = self::MCP_CONFIGS['codex'];
+        $existing = $changes->contents($path);
+        if (null === $existing) {
+            return;
+        }
+
+        $lines = explode("\n", rtrim($existing, "\n"));
+        $removed = false;
+        foreach ([self::CODEX_TABLE, self::CODEX_SUBTABLE] as $pattern) {
+            while (null !== $range = self::codexTable($lines, $pattern)) {
+                array_splice($lines, $range[0], $range[1] - $range[0]);
+                $removed = true;
+            }
+        }
+
+        if (!$removed) {
+            return;
+        }
+
+        $content = trim((string) preg_replace("/\n{3,}/", "\n\n", implode("\n", $lines)));
+        if ('' === $content) {
+            $changes->delete($path);
         } else {
-            $end = \count($lines);
-            for ($i = $start + 1; $i < \count($lines); ++$i) {
-                if (str_starts_with(ltrim($lines[$i]), '[')) {
-                    $end = $i;
+            $changes->put($path, $content."\n");
+        }
+    }
 
+    /**
+     * Remove the `robuust` server from `.mcp.json`.
+     */
+    private static function planRemoveClaudeMcp(Changeset $changes): void
+    {
+        $path = self::MCP_CONFIGS['claude_code'];
+        $existing = $changes->contents($path);
+        $data = null === $existing ? null : json_decode($existing);
+        if (!$data instanceof \stdClass || !($data->mcpServers ?? null) instanceof \stdClass || !isset($data->mcpServers->{self::MCP_SERVER})) {
+            return;
+        }
+
+        unset($data->mcpServers->{self::MCP_SERVER});
+
+        if ([] === get_object_vars($data->mcpServers) && 1 === \count(get_object_vars($data))) {
+            $changes->delete($path);
+        } else {
+            $changes->put($path, Json::encode($data));
+        }
+    }
+
+    /**
+     * The first table whose header matches, as [header line, line after its last line].
+     *
+     * @param list<string> $lines
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private static function codexTable(array $lines, string $header): ?array
+    {
+        foreach ($lines as $start => $line) {
+            if (1 !== preg_match($header, $line)) {
+                continue;
+            }
+
+            for ($end = $start + 1; $end < \count($lines); ++$end) {
+                if (str_starts_with(ltrim($lines[$end]), '[')) {
                     break;
                 }
             }
-            $before = \array_slice($lines, 0, $start);
-            $after = \array_slice($lines, $end);
-            $content = ([] === $before ? '' : implode("\n", $before)."\n").$table
-                .([] === $after ? '' : "\n".implode("\n", $after)."\n");
+
+            return [$start, $end];
         }
 
-        $changes->put($path, $content);
+        return null;
+    }
+
+    /**
+     * Drop the given keys from a table body, including values that span several lines.
+     *
+     * @param list<string> $lines
+     * @param list<string> $keys
+     *
+     * @return list<string>
+     */
+    private static function withoutKeys(array $lines, array $keys): array
+    {
+        $pattern = '/^\s*(?:'.implode('|', array_map(static fn (string $key): string => preg_quote($key, '/'), $keys)).')\s*=/';
+        $kept = [];
+        $depth = 0;
+
+        foreach ($lines as $line) {
+            if ($depth > 0 || 1 === preg_match($pattern, $line)) {
+                // Count brackets outside strings, so a multi-line array is skipped to its end.
+                $bare = (string) preg_replace('/"(?:\\\.|[^"\\\])*"|\'[^\']*\'/', '', $line);
+                $depth = max(0, $depth + substr_count($bare, '[') - substr_count($bare, ']'));
+
+                continue;
+            }
+
+            $kept[] = $line;
+        }
+
+        return $kept;
     }
 
     /**
@@ -318,6 +491,19 @@ final class Craft5Sync
         }
 
         return $skills;
+    }
+
+    /**
+     * The skill names a sync recorded in a directory's manifest.
+     *
+     * @return list<string>
+     */
+    private static function manifestSkills(string $directory): array
+    {
+        $manifest = Json::readFile($directory.'/'.self::MANIFEST);
+        $skills = \is_array($manifest['skills'] ?? null) ? $manifest['skills'] : [];
+
+        return array_values(array_filter($skills, static fn (mixed $name): bool => \is_string($name) && self::isSafeName($name)));
     }
 
     private static function isSafeName(string $name): bool

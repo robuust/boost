@@ -120,6 +120,10 @@ final class Changeset
             if (is_file($path) && file_get_contents($path) === $content) {
                 continue;
             }
+            // A shipped path can turn from a directory into a file.
+            if (is_dir($path) && !is_link($path)) {
+                Filesystem::remove($path);
+            }
             Filesystem::ensureDirectory(\dirname($path));
             if (false === file_put_contents($path, $content)) {
                 throw new \RuntimeException(\sprintf('Failed to write %s.', $relative));

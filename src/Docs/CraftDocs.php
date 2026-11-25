@@ -5,9 +5,10 @@ namespace Robuust\Boost\Docs;
 /**
  * Searches the versioned Craft CMS docs index published by `robuust/craft-llms`.
  *
- * Layout under the base URL: `{major}/index.json` and `{major}/pages/{path}`.
- * Pages are keyed by their source path; titles may repeat. When the requested
- * major has no index, the search says so and never serves another major.
+ * Layout under the base URL: `{major}/index.json`, `{major}/pages/{path}` and
+ * `{major}/llms-full.txt`. Pages are keyed by their source path; titles may
+ * repeat. When the requested major has no index, the search says so and never
+ * serves another major.
  */
 final class CraftDocs
 {
@@ -17,6 +18,9 @@ final class CraftDocs
 
     /** @var array<string, array<string, mixed>|null> */
     private array $indexes = [];
+
+    /** @var array<string, list<array{title: string, body: string}>> */
+    private array $fullTexts = [];
 
     public function __construct(
         private readonly string $baseUrl = self::DEFAULT_BASE_URL,
@@ -85,8 +89,15 @@ final class CraftDocs
         $response['revision'] = \is_string($index['revision'] ?? null) ? $index['revision'] : null;
         $response['generated_at'] = \is_string($index['generated_at'] ?? null) ? $index['generated_at'] : null;
 
+        $pages = $this->pages($index);
+        $limit = max(8, $maxResults * 2);
+        $candidates = $this->candidates($pages, $query, $limit);
+        if ([] === $candidates) {
+            $candidates = $this->fullTextCandidates($pages, $query, $limit, $requested, $response['revision']);
+        }
+
         $results = [];
-        foreach ($this->candidates($this->pages($index), $query, max(8, $maxResults * 2)) as $candidate) {
+        foreach ($candidates as $candidate) {
             $page = $candidate['page'];
             $pageUrl = $this->baseUrl.'/'.$requested.'/pages/'.implode('/', array_map('rawurlencode', explode('/', $page['path'])));
             $fetched = $this->http->get($pageUrl);
@@ -191,6 +202,86 @@ final class CraftDocs
         usort($ranked, static fn (array $left, array $right): int => [$right['score'], $left['page']['path']] <=> [$left['score'], $right['page']['path']]);
 
         return \array_slice($ranked, 0, $limit);
+    }
+
+    /**
+     * Pages whose body in the full text mentions the query, ranked by hit count.
+     *
+     * The index has no body terms, so this finds names that only appear in page
+     * text. It matches the query's code terms, or its tokens when it has none.
+     * Full-text sections have a title but no path, so a title shared by several
+     * pages yields all of them.
+     *
+     * @param list<array{path: string, title: string, url: string, headings: list<string>}> $pages
+     *
+     * @return list<array{page: array{path: string, title: string, url: string, headings: list<string>}, score: int}>
+     */
+    private function fullTextCandidates(array $pages, string $query, int $limit, string $major, ?string $revision): array
+    {
+        $terms = Text::codeTerms($query) ?: Text::tokens($query);
+        if ([] === $terms) {
+            return [];
+        }
+
+        $pagesByTitle = [];
+        foreach ($pages as $page) {
+            $pagesByTitle[strtolower(trim($page['title']))][] = $page;
+        }
+
+        $ranked = [];
+        foreach ($this->fullText($major, $revision) as $section) {
+            $hits = array_sum(array_map(static fn (string $term): int => substr_count($section['body'], $term), $terms));
+            if (0 === $hits) {
+                continue;
+            }
+
+            foreach ($pagesByTitle[$section['title']] ?? [] as $page) {
+                $ranked[$page['path']] = ['page' => $page, 'score' => max($hits, $ranked[$page['path']]['score'] ?? 0)];
+            }
+        }
+
+        $ranked = array_values($ranked);
+        usort($ranked, static fn (array $left, array $right): int => [$right['score'], $left['page']['path']] <=> [$left['score'], $right['page']['path']]);
+
+        return \array_slice($ranked, 0, $limit);
+    }
+
+    /**
+     * Lowercase title and body of each page in `{major}/llms-full.txt`, fetched once per index revision.
+     *
+     * A page starts at a line `---` followed by a `# Title` line; anything before
+     * the first page is the file header. A failed download is not cached.
+     *
+     * @return list<array{title: string, body: string}> empty when the file cannot be fetched
+     */
+    private function fullText(string $major, ?string $revision): array
+    {
+        $key = $major.'@'.($revision ?? '');
+        if (isset($this->fullTexts[$key])) {
+            return $this->fullTexts[$key];
+        }
+
+        try {
+            $response = $this->http->get($this->baseUrl.'/'.$major.'/llms-full.txt');
+        } catch (\RuntimeException) {
+            return [];
+        }
+
+        if (200 !== $response['status']) {
+            return [];
+        }
+
+        $sections = [];
+        $chunks = preg_split('/^---\n(?=# )/m', str_replace("\r\n", "\n", $response['body'])) ?: [];
+        foreach (\array_slice($chunks, 1) as $chunk) {
+            $lines = explode("\n", $chunk, 2);
+            $sections[] = [
+                'title' => strtolower(trim(substr($lines[0], 2))),
+                'body' => strtolower($lines[1] ?? ''),
+            ];
+        }
+
+        return $this->fullTexts[$key] = $sections;
     }
 
     /**

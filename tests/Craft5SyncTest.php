@@ -3,6 +3,7 @@
 namespace Robuust\Boost\Tests;
 
 use Robuust\Boost\Stack;
+use Robuust\Boost\Sync\Changeset;
 use Robuust\Boost\Sync\Craft5Config;
 use Robuust\Boost\Sync\Craft5Sync;
 
@@ -159,7 +160,80 @@ final class Craft5SyncTest extends TestCase
         self::assertFalse(is_link($root.'/.claude/skills'));
         self::assertFileExists($root.'/.claude/skills/fe-craft/SKILL.md');
         self::assertFileExists($root.'/.claude/skills/'.Craft5Sync::MANIFEST);
-        self::assertFileExists($root.'/.agents/skills/fe-craft/SKILL.md', 'deselecting Codex leaves its files to the project');
+        self::assertDirectoryDoesNotExist($root.'/.agents/skills/fe-craft', 'deselecting Codex retires its generated skills');
+        self::assertFileDoesNotExist($root.'/.agents/skills/'.Craft5Sync::MANIFEST);
+        self::assertFileDoesNotExist($root.'/.codex/config.toml', 'the file held only the robuust server');
+        self::assertSame(0, $this->cli(['sync', '--check', '--root='.$root])['exit']);
+    }
+
+    public function testDeselectedClaudeCodeIsRetired(): void
+    {
+        $root = $this->project('craft5');
+        $this->write($root.'/robuust-agents.json', '{"agents": ["codex", "claude_code"], "packages": []}');
+        self::assertSame(0, $this->cli(['sync', '--root='.$root])['exit']);
+        $this->write($root.'/.mcp.json', '{"mcpServers": {"robuust": {"command": "php", "args": ["vendor/bin/robuust-agents", "mcp"]}, "other": {"command": "other"}}}');
+
+        $this->write($root.'/robuust-agents.json', '{"agents": ["codex"], "packages": []}');
+        self::assertSame(0, $this->cli(['sync', '--root='.$root])['exit']);
+
+        self::assertFalse(is_link($root.'/.claude/skills'), 'Claude Code no longer sees the generated skills');
+        self::assertFileDoesNotExist($root.'/.claude/skills');
+        self::assertSame(['other' => ['command' => 'other']], json_decode((string) file_get_contents($root.'/.mcp.json'), true)['mcpServers']);
+        self::assertSame("@AGENTS.md\n", file_get_contents($root.'/CLAUDE.md'), 'the import stays');
+        self::assertFileExists($root.'/.agents/skills/fe-craft/SKILL.md');
+        self::assertSame(0, $this->cli(['sync', '--check', '--root='.$root])['exit']);
+    }
+
+    public function testHandWrittenSkillWithAShippedNameBlocksTheSync(): void
+    {
+        $root = $this->project('craft5');
+        $this->write($root.'/.agents/skills/fe-craft/SKILL.md', "---\nname: fe-craft\ndescription: Hand-written.\n---\n");
+        $this->write($root.'/.agents/skills/fe-craft/references/own.md', 'Hand-written reference.');
+        $before = $this->files($root);
+
+        $result = $this->cli(['sync', '--root='.$root]);
+
+        self::assertSame(1, $result['exit']);
+        self::assertStringContainsString('.agents/skills holds skills that robuust-agents did not write but would overwrite: fe-craft', $result['stderr']);
+        self::assertSame($before, $this->files($root), 'nothing was written');
+    }
+
+    public function testCodexTableKeepsItsHeaderAndOtherKeys(): void
+    {
+        $root = $this->project('craft5');
+        $this->write($root.'/robuust-agents.json', '{"agents": ["codex"], "packages": []}');
+        $this->write($root.'/.codex/config.toml', "model = \"x\"\n\n[mcp_servers.\"robuust\"] # docs\ncommand = \"old\"\nargs = [\n  \"old\",\n]\nstartup_timeout_sec = 30\n\n[mcp_servers.robuust.env]\nKEY = \"value\"\n\n[mcp_servers.other]\ncommand = \"other\"\n");
+
+        self::assertSame(0, $this->cli(['sync', '--root='.$root])['exit']);
+
+        self::assertSame(
+            "model = \"x\"\n\n[mcp_servers.\"robuust\"] # docs\ncommand = \"php\"\nargs = [\"vendor/bin/robuust-agents\", \"mcp\"]\nstartup_timeout_sec = 30\n\n[mcp_servers.robuust.env]\nKEY = \"value\"\n\n[mcp_servers.other]\ncommand = \"other\"\n",
+            file_get_contents($root.'/.codex/config.toml'),
+        );
+        self::assertSame(0, $this->cli(['sync', '--check', '--root='.$root])['exit']);
+    }
+
+    public function testImportInsideACodeFenceIsNotAnImport(): void
+    {
+        $root = $this->project('craft5');
+        $this->write($root.'/CLAUDE.md', "Example:\n\n```md\n@AGENTS.md\n```\n");
+
+        self::assertSame(0, $this->cli(['sync', '--root='.$root])['exit']);
+
+        self::assertSame("@AGENTS.md\n\nExample:\n\n```md\n@AGENTS.md\n```\n", file_get_contents($root.'/CLAUDE.md'));
+    }
+
+    public function testShippedDirectoryThatBecomesAFileIsReplaced(): void
+    {
+        $root = $this->project('craft5');
+        $this->write($root.'/.agents/skills/guide/ref/index.md', 'old');
+
+        $changes = new Changeset($root);
+        $changes->delete('.agents/skills/guide/ref/index.md');
+        $changes->put('.agents/skills/guide/ref', 'new');
+        $changes->apply();
+
+        self::assertSame('new', file_get_contents($root.'/.agents/skills/guide/ref'));
     }
 
     public function testGeneratedClaudeSkillsDirectoryBecomesASymlink(): void

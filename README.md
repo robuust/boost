@@ -69,11 +69,13 @@ The package sets `boost.agents.claude_code.guidelines_path` to `AGENTS.md`, so B
 
 Craft 5 cannot run Laravel Boost, so the Craft 5 sync writes the agent files itself:
 
-- a generated block in `AGENTS.md`, between `<robuust-agents-guidelines>` tags; text outside the block is kept. After a move to Craft 6, `sync` removes this block before `boost:update`, because Boost's own block then carries these guidelines;
+- a generated block in `AGENTS.md`, between `<robuust-agents-guidelines>` tags; text outside the block is kept. After a move to Craft 6, the first `sync` replaces this block, the generated skills and the `robuust` MCP entries with Boost's own. If `boost:update` fails or writes no `<laravel-boost-guidelines>` block, those Craft 5 files are put back;
 - `CLAUDE.md` importing `@AGENTS.md`, added at the top of an existing file;
 - `.ai/rules/index.md`, regenerated from the rule files in `.ai/rules`. Rules recorded by the legacy `craft_twig_rules` MCP keep their globs only in a `# Project rules` index table; the first sync moves those globs into each rule file's `paths:` frontmatter, so no rule drops out of the index;
-- skills in `.agents/skills`, with a `.robuust-agents-manifest.json` so skills that are no longer shipped get removed; skills you add yourself are left alone. With both agents, `.claude/skills` is a symlink to `../.agents/skills`, so the project holds one copy. Move hand-written skills from an existing `.claude/skills` to `.agents/skills` first; the sync stops until you do;
-- the `robuust` MCP server (`php vendor/bin/robuust-agents mcp`) in `.mcp.json` and `.codex/config.toml`, next to any other servers.
+- skills in `.agents/skills`, with a `.robuust-agents-manifest.json` so skills that are no longer shipped get removed; skills you add yourself are left alone. A hand-written skill with the same name as a shipped one stops the sync until you rename or remove it. With both agents, `.claude/skills` is a symlink to `../.agents/skills`, so the project holds one copy. Move hand-written skills from an existing `.claude/skills` to `.agents/skills` first; the sync stops until you do;
+- the `robuust` MCP server (`php vendor/bin/robuust-agents mcp`) in `.mcp.json` and `.codex/config.toml`, next to any other servers. In `.codex/config.toml` the sync sets only `command` and `args`, so other keys in the `[mcp_servers.robuust]` table, such as `env` or a timeout, stay.
+
+Removing an agent from `robuust-agents.json` removes what the sync generated for it: its skills (or the `.claude/skills` symlink) and its `robuust` MCP entry. Hand-written skills, other servers and the `@AGENTS.md` import in `CLAUDE.md` stay.
 
 ## Commands
 
@@ -88,7 +90,7 @@ All commands take `--root=<path>` to work on another directory.
 
 **The guard.** If a package selected in `boost.json` or `robuust-agents.json` is missing from `vendor/` or `node_modules/`, sync names the package and the install command, exits 1 and writes nothing. This stops a Composer update that runs before `yarn install` from dropping an npm package's skills. Install the dependencies and run the same command again. To remove a package on purpose, remove it from the selection and sync.
 
-**`--check` on Boost projects.** The check runs `boost:update`, compares the files each agent in `boost.json` writes (by Boost's default paths for that agent) and puts back every path that changed, including permission bits and directories. It reports changed files and executable bits; directories alone do not count, because Git does not track them. If `boost.json` lists an agent this package does not know, the check stops before running anything; paths overridden in `config/boost.php` are not followed.
+**`--check` on Boost projects.** The check runs `boost:update`, compares the files each agent in `boost.json` writes (by Boost's default paths for that agent) and puts back every path that changed, including permission bits and directories. It reports changed files and executable bits; directories alone do not count, because Git does not track them. The check stops before running anything if `boost.json` lists an agent this package does not know, or if `config/boost.php` sets `guidelines_path`, `skills_path` or `mcp_config_path`: Boost would then write files the check cannot restore.
 
 **Boost and the environment.** Boost registers its commands only in a local or debug environment, so sync runs `boost:update` with `APP_ENV=local`.
 
@@ -105,6 +107,8 @@ Run the check after both Composer and Yarn have installed, so a stale skill afte
 ## Docs search
 
 Craft docs come from the versioned index that `robuust/craft-llms` builds and Netlify serves (`{major}/index.json` and `{major}/pages/{path}`). Every result names the requested major, the served major, the page URL, its source path and the docs revision. When the requested major has no index, the tool says so and does not fall back to another major.
+
+When no page title, heading or path matches the query, the Craft search falls back to `{major}/llms-full.txt` from the same base URL. It scans the page bodies for the query's code terms (or plain words when there are none) and matches the pages to the index by title, so names that only appear in page text, such as `andWhere()`, are still found. The full text is downloaded only when that fallback runs, at most once per index revision per process, and a failed download gives no results. A long-term option is for `craft-llms` to publish per-page body terms (for example code identifiers) in `index.json`, which would make the fallback unnecessary.
 
 The default base URL is `https://craft-llms.netlify.app`. Override it with the `ROBUUST_DOCS_BASE_URL` environment variable, `docs_base_url` in `robuust-agents.json` (Craft 5) or `robuust-boost.docs_base_url` in Laravel config. The environment variable wins.
 

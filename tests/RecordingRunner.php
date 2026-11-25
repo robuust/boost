@@ -11,9 +11,12 @@ final class RecordingRunner extends ProcessRunner
 
     /**
      * @param (\Closure(string): void)|null $effect
+     * @param int                           $exit   the exit code `boost:update` reports
      */
-    public function __construct(private readonly ?\Closure $effect = null)
-    {
+    public function __construct(
+        private readonly ?\Closure $effect = null,
+        private readonly int $exit = 0,
+    ) {
     }
 
     public function run(array $command, string $cwd, array $env = []): int
@@ -24,6 +27,6 @@ final class RecordingRunner extends ProcessRunner
             ($this->effect)($cwd);
         }
 
-        return 0;
+        return $this->exit;
     }
 }
