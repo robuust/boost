@@ -1,0 +1,36 @@
+# Craft CMS Documentation
+Craft CMS 5.x documentation covering installation, configuration, templating, and extension points.
+Last updated: 2026-11-19T06:00:00+00:00 (commit a8ba134)
+
+---
+# Tags
+
+Tags are a taggable element type. Pass `tagGroupId` to a tag query to narrow it to one group.
+
+---
+# Element Queries
+
+Element queries fetch elements from the database.
+
+Param | Accepts
+--- | ---
+`id` | an element ID
+
+Some criteria can only be expressed with ActiveRecord’s `where()` and `andWhere()`.
+
+```twig
+# Not a page title: a line inside a code block.
+{% set entries = craft.entries()
+  .section('news')
+  .andWhere(['like', 'title', 'craft'])
+  .all() %}
+```
+
+---
+
+A horizontal rule inside a page does not start another page.
+
+---
+# Code of Conduct
+
+Be friendly and patient.

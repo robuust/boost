@@ -1,0 +1,12 @@
+{
+    "agents": [
+        "claude_code",
+        "codex"
+    ],
+    "guidelines": true,
+    "mcp": true,
+    "packages": [
+        "robuust/boost"
+    ],
+    "skills": []
+}

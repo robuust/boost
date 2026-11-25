@@ -1,0 +1,52 @@
+{
+    "name": "robuust/boost",
+    "description": "Robuust agent guidelines, skills and docs search for Laravel Boost and Craft CMS projects.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": ["ai", "agents", "boost", "craft", "laravel"],
+    "require": {
+        "php": "^8.5",
+        "ext-json": "*",
+        "mcp/sdk": "^0.9 || ^0.10"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.94",
+        "illuminate/view": "^11.45 || ^12.41 || ^13.0",
+        "laravel/boost": "^2.10",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5 || ^12.4"
+    },
+    "autoload": {
+        "psr-4": {
+            "Robuust\\Boost\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Robuust\\Boost\\Tests\\": "tests/"
+        }
+    },
+    "bin": [
+        "bin/robuust-agents"
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Robuust\\Boost\\BoostServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "phpstan": "phpstan analyse --memory-limit=1G",
+        "test": "phpunit"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
+    },
+    "minimum-stability": "stable"
+}

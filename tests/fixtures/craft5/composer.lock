@@ -1,0 +1,6 @@
+{
+    "packages": [
+        {"name": "craftcms/cms", "version": "5.12.1"}
+    ],
+    "packages-dev": []
+}
