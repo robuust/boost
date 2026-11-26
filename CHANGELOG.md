@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Docs search excerpts keep code examples whole instead of cutting them off mid-block, and skip a code block that ends before the match.
+
+## 0.1.0 (2026-11-25)
+
 ### Added
 
 - Laravel Boost extension for Laravel and Craft 6: a core guideline with the test authorization rule, an Inertia guideline, a Craft 6 (beta) guideline and the Laravel and Inertia skills, selected per stack.
