@@ -79,13 +79,17 @@ final class Text
         $inFence = false;
         $fences = [];
         $fenceOpen = 0;
+        $fenceMarker = '';
 
         foreach ($normalizedLines as $index => $normalizedLine) {
-            if (1 === preg_match('/^\s*(?:```|~~~)/', $normalizedLine)) {
-                $inFence = !$inFence;
-                if ($inFence) {
+            // As in CommonMark, only a bare run of the opening character, at least as long, closes a fence.
+            if (1 === preg_match('/^\s*(`{3,}|~{3,})(.*)$/', $normalizedLine, $marker)) {
+                if (!$inFence) {
+                    $inFence = true;
                     $fenceOpen = $index;
-                } else {
+                    $fenceMarker = $marker[1];
+                } elseif ($marker[1][0] === $fenceMarker[0] && \strlen($marker[1]) >= \strlen($fenceMarker) && '' === trim($marker[2])) {
+                    $inFence = false;
                     $fences[] = [$fenceOpen, $index];
                 }
             }

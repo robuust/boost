@@ -86,6 +86,38 @@ final class TextTest extends TestCase
         self::assertStringStartsWith('The after param', $match['excerpt']);
     }
 
+    public function testAMatchInsideACodeBlockStartsAtItsFence(): void
+    {
+        $contents = implode("\n", ['Intro.', '```php', 'one();', 'two();', 'three();', 'four();', 'five();', 'needle();', '```']);
+
+        $match = Text::bestMatch($contents, 'needle');
+
+        self::assertNotNull($match);
+        self::assertSame(2, $match['line_start'], 'the window grows back to the opening fence of the block holding the match');
+        self::assertSame(9, $match['line_end']);
+    }
+
+    public function testAnUnclosedCodeBlockRunsToTheEnd(): void
+    {
+        $contents = implode("\n", ['## Example', '```php', ...array_fill(0, 10, 'echo 1;')]);
+
+        $match = Text::bestMatch($contents, 'Example');
+
+        self::assertNotNull($match);
+        self::assertSame(12, $match['line_end']);
+    }
+
+    public function testOnlyAMatchingMarkerClosesACodeBlock(): void
+    {
+        $contents = implode("\n", ['````md', '```js', 'code', '````', '', 'Prose one.', 'Prose two.', 'Prose three.', 'The needle line.']);
+
+        $match = Text::bestMatch($contents, 'needle');
+
+        self::assertNotNull($match);
+        self::assertSame(5, $match['line_start'], 'the nested ``` line neither closes nor reopens the outer block');
+        self::assertStringStartsWith('Prose one.', $match['excerpt']);
+    }
+
     public function testAVeryLongCodeBlockKeepsTheWindow(): void
     {
         $contents = implode("\n", ['## Long example', '```php', ...array_fill(0, 40, 'echo 1;'), '```']);
