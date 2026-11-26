@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Craft 5 routes element queries in templates to `fe-craft`, which now asks to eager-load every relation a template's partials render and to order date lists explicitly in structure sections.
+
 ### Fixed
 
 - Docs search excerpts keep code examples whole instead of cutting them off mid-block, and skip a code block that ends before the match.
