@@ -1,6 +1,6 @@
 ---
 name: be-craft
-description: "Use for Craft 5 and Yii back-end work: modules, controllers, services, events, queue jobs, Element Queries, and project config."
+description: "Use for Craft 5 and Yii back-end work: modules, controllers, services, events, queue jobs, Element Queries in PHP, and project config."
 ---
 
 # Craft/Yii backend
@@ -15,4 +15,4 @@ Before acting on a path, open `.ai/rules/index.md`, read every rule file whose g
 - For a concrete Craft CMS or Yii API question, call `search-craft-docs` on the `robuust` MCP server with a targeted query. Do not fetch documentation when repository evidence is sufficient.
 - Do not fetch Tailwind documentation for backend-only work.
 
-For template changes, use [`fe-craft`](../fe-craft/SKILL.md); for Turbo response contracts, use [`hotwired-patterns-craft`](../hotwired-patterns-craft/SKILL.md). Use [`infer-craft-conventions`](../infer-craft-conventions/SKILL.md) when convention discovery or recording is requested, not as a prerequisite for routine backend edits.
+For template changes, including the element queries a template runs, use [`fe-craft`](../fe-craft/SKILL.md); for Turbo response contracts, use [`hotwired-patterns-craft`](../hotwired-patterns-craft/SKILL.md). Use [`infer-craft-conventions`](../infer-craft-conventions/SKILL.md) when convention discovery or recording is requested, not as a prerequisite for routine backend edits.
