@@ -10,6 +10,11 @@ final class Text
     private const STOP_WORDS = ['a', 'an', 'and', 'are', 'can', 'do', 'does', 'for', 'from', 'how', 'in', 'is', 'it', 'of', 'on', 'or', 'should', 'the', 'to', 'use', 'what', 'when', 'which', 'why', 'with', 'work', 'works'];
 
     /**
+     * Lines an excerpt may grow by on either side to keep a code fence whole.
+     */
+    private const MAX_FENCE_EXTENSION = 30;
+
+    /**
      * Unique lowercase search tokens.
      *
      * @return list<string>
@@ -50,9 +55,16 @@ final class Text
      *
      * A code term from the query that appears literally, such as `@apply`, weighs
      * most. A matching Markdown or HTML heading outside a code fence weighs extra and
-     * starts the excerpt, so it opens at that section.
+     * starts the excerpt, so it opens at that section. An excerpt never starts or ends
+     * inside a code fence when it can avoid it: it skips a fence that lies wholly before
+     * the match, and grows to include any other cut fence within MAX_FENCE_EXTENSION
+     * lines per side, so code examples are not cut off.
      *
+     * @param string       $contents    the document text
+     * @param string       $query       the search query
      * @param list<string> $boostTokens tokens that weigh extra, such as those not already in the title
+     * @param int          $before      lines of context before the matching line
+     * @param int          $after       lines of context from the matching line on
      *
      * @return array{score: int, line_start: int, line_end: int, excerpt: string}|null
      */
@@ -65,10 +77,21 @@ final class Text
         $normalizedQuery = strtolower(trim($query));
         $best = null;
         $inFence = false;
+        $fences = [];
+        $fenceOpen = 0;
+        $fenceMarker = '';
 
         foreach ($normalizedLines as $index => $normalizedLine) {
-            if (1 === preg_match('/^\s*(?:```|~~~)/', $normalizedLine)) {
-                $inFence = !$inFence;
+            // As in CommonMark, only a bare run of the opening character, at least as long, closes a fence.
+            if (1 === preg_match('/^\s*(`{3,}|~{3,})(.*)$/', $normalizedLine, $marker)) {
+                if (!$inFence) {
+                    $inFence = true;
+                    $fenceOpen = $index;
+                    $fenceMarker = $marker[1];
+                } elseif ($marker[1][0] === $fenceMarker[0] && \strlen($marker[1]) >= \strlen($fenceMarker) && '' === trim($marker[2])) {
+                    $inFence = false;
+                    $fences[] = [$fenceOpen, $index];
+                }
             }
 
             $matched = array_filter($queryTokens, static fn (string $token): bool => str_contains($normalizedLine, $token));
@@ -89,16 +112,63 @@ final class Text
                 continue;
             }
 
-            $start = $heading ? $index : max(0, $index - $before);
-            $end = min(\count($lines), $index + $after);
             $best = [
                 'score' => $score,
-                'line_start' => $start + 1,
-                'line_end' => $end,
-                'excerpt' => trim(implode("\n", \array_slice($lines, $start, $end - $start))),
+                'index' => $index,
+                'start' => $heading ? $index : max(0, $index - $before),
+                'end' => min(\count($lines), $index + $after),
             ];
         }
 
-        return $best;
+        if (null === $best) {
+            return null;
+        }
+
+        if ($inFence) {
+            $fences[] = [$fenceOpen, \count($lines) - 1];
+        }
+
+        [$start, $end] = self::keepFencesWhole($best['index'], $best['start'], $best['end'], $fences);
+
+        return [
+            'score' => $best['score'],
+            'line_start' => $start + 1,
+            'line_end' => $end,
+            'excerpt' => trim(implode("\n", \array_slice($lines, $start, $end - $start))),
+        ];
+    }
+
+    /**
+     * Moves the edges of an excerpt window out of code fences, so no fence is cut.
+     *
+     * A window that starts inside a fence before the matching line skips that fence;
+     * one that starts inside the fence holding the match, or ends inside any fence,
+     * grows to the whole fence when its boundary lies within MAX_FENCE_EXTENSION
+     * lines. A longer code block keeps the original window on that side.
+     *
+     * @param int                   $match  index of the matching line
+     * @param int                   $start  index of the window's first line
+     * @param int                   $end    index after the window's last line
+     * @param list<array{int, int}> $fences indexes of each fence's opening and closing line
+     *
+     * @return array{int, int} the adjusted start and end
+     */
+    private static function keepFencesWhole(int $match, int $start, int $end, array $fences): array
+    {
+        foreach ($fences as [$open, $close]) {
+            if ($open < $start && $start <= $close) {
+                if ($close < $match) {
+                    $start = $close + 1;
+                } elseif ($start - $open <= self::MAX_FENCE_EXTENSION) {
+                    $start = $open;
+                }
+            }
+
+            if ($open < $end && $close >= $end && $close + 1 - $end <= self::MAX_FENCE_EXTENSION) {
+                $end = $close + 1;
+            }
+        }
+
+        return [$start, $end];
     }
 }
